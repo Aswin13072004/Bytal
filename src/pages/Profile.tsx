@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence, Variants } from 'framer-motion';
-import { User, WeightProgress } from '../types';
+import { WeightProgress } from '../types';
 import { useAuth } from '../contexts/AuthContext';
 import { dbOperations, subscribeToRealtime } from '../utils/supabase';
 import { 
@@ -11,12 +11,10 @@ import {
   Trash2, 
   TrendingUp, 
   Flame, 
-  Calendar,
   Weight,
   Activity,
   Settings,
   Save,
-  X,
   CheckCircle,
   Award,
   Sparkles,
@@ -26,13 +24,13 @@ import {
 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { Input } from '../components/ui/input';
+// Removed unused Input import
 import { Badge } from '../components/ui/badge';
 
 
 const Profile: React.FC = () => {
   const { user: authUser, signOut } = useAuth();
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<{ name: string; streak_count: number; email: string; created_at: string; updated_at: string } | null>(null);
   const [weightHistory, setWeightHistory] = useState<WeightProgress[]>([]);
   const [loading, setLoading] = useState(true);
   const [isEditingProfile, setIsEditingProfile] = useState(false);
@@ -46,67 +44,56 @@ const Profile: React.FC = () => {
 
   const [profileForm, setProfileForm] = useState({
     name: '',
-    currentWeight: 0,
-    targetWeight: 0,
   });
 
-  useEffect(() => {
-    if (authUser) {
-      loadProfileData();
-      
-      // Subscribe to real-time updates
-      const weightSubscription = subscribeToRealtime('weight_progress', (payload) => {
-        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
-          loadProfileData();
-        }
-      });
-
-      return () => {
-        weightSubscription.unsubscribe();
-      };
-    }
-  }, [authUser]);
-
-  const loadProfileData = async () => {
+  const loadProfileData = React.useCallback(async () => {
     if (!authUser) return;
-    
     try {
       setLoading(true);
-      
-      // Load user profile
       const userData = await dbOperations.getUser(authUser.id);
-      setUser(userData);
-      setProfileForm({
-        name: userData.name,
-        currentWeight: userData.currentWeight,
-        targetWeight: userData.targetWeight,
-      });
-      
-      // Load weight progress
+      if (userData) {
+        setUser(userData);
+        setProfileForm({ name: userData.name });
+      } else {
+        setUser(null);
+      }
       const weightData = await dbOperations.getWeightProgress(authUser.id);
       setWeightHistory(weightData);
-      
     } catch (error) {
       console.error('Error loading profile data:', error);
     } finally {
       setLoading(false);
     }
-  };
+  }, [authUser]);
+
+  useEffect(() => {
+    if (authUser) {
+      loadProfileData();
+      const weightSubscription = subscribeToRealtime('weight_progress', (payload) => {
+        if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE' || payload.eventType === 'DELETE') {
+          loadProfileData();
+        }
+      });
+      return () => {
+        weightSubscription.unsubscribe();
+      };
+    }
+  }, [authUser, loadProfileData]);
+
+  // removed duplicate loadProfileData definition
 
   const weightChange = weightHistory.length > 1 
     ? weightHistory[0].weight - weightHistory[weightHistory.length - 1].weight 
     : 0;
   
-  const progressToTarget = user && weightHistory.length > 0
-    ? ((user.currentWeight - user.targetWeight) / (weightHistory[weightHistory.length - 1].weight - user.targetWeight)) * 100
-    : 0;
+  const progressToTarget = 0; // Simplified for now since we don't have target weight in new schema
 
   const addWeightEntry = async () => {
     if (!authUser || newWeight.weight <= 0) return;
     
     try {
-      const entry = await dbOperations.createWeightEntry({
-        userId: authUser.id,
+      await dbOperations.createWeightEntry({
+        user_id: authUser.id,
         weight: newWeight.weight,
         date: newWeight.date,
         notes: newWeight.notes,
@@ -114,8 +101,7 @@ const Profile: React.FC = () => {
       
       // Update user's current weight if it's today's entry
       if (newWeight.date === new Date().toISOString().split('T')[0]) {
-        await dbOperations.updateUser(authUser.id, { currentWeight: newWeight.weight });
-        setUser(prev => prev ? { ...prev, currentWeight: newWeight.weight } : null);
+        setUser((prev: { name: string; streak_count: number; email: string; created_at: string; updated_at: string } | null) => prev ? { ...prev } : null);
       }
       
       setNewWeight({
@@ -144,8 +130,7 @@ const Profile: React.FC = () => {
       
       // Update user's current weight if it's today's entry
       if (newWeight.date === new Date().toISOString().split('T')[0]) {
-        await dbOperations.updateUser(authUser.id, { currentWeight: newWeight.weight });
-        setUser(prev => prev ? { ...prev, currentWeight: newWeight.weight } : null);
+        setUser((prev: { name: string; streak_count: number; email: string; created_at: string; updated_at: string } | null) => prev ? { ...prev } : null);
       }
       
       setEditingWeight(null);
@@ -180,9 +165,6 @@ const Profile: React.FC = () => {
     try {
       const updatedUser = await dbOperations.updateUser(authUser.id, {
         name: profileForm.name,
-        currentWeight: profileForm.currentWeight,
-        targetWeight: profileForm.targetWeight,
-        updatedAt: new Date().toISOString(),
       });
       
       setUser(updatedUser);
@@ -348,7 +330,7 @@ const Profile: React.FC = () => {
                         <div className="w-16 h-16 bg-gradient-to-br from-red-500/20 to-pink-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300">
                           <Flame className="w-8 h-8 text-red-400" />
                         </div>
-                        <div className="text-3xl font-bold text-white mb-2">{user.streakCount}</div>
+                        <div className="text-3xl font-bold text-white mb-2">{user.streak_count || 0}</div>
                         <div className="text-white/60 text-sm font-medium">Day Streak</div>
                         <Badge variant="success" className="mt-2 text-xs">
                           <Sparkles className="w-3 h-3 mr-1" />
@@ -360,11 +342,11 @@ const Profile: React.FC = () => {
                         <div className="w-16 h-16 bg-gradient-to-br from-emerald-500/20 to-teal-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300">
                           <Weight className="w-8 h-8 text-emerald-400" />
                         </div>
-                        <div className="text-3xl font-bold text-white mb-2">{user.currentWeight}</div>
+                        <div className="text-3xl font-bold text-white mb-2">-</div>
                         <div className="text-white/60 text-sm font-medium">Current (kg)</div>
                         <Badge variant="info" className="mt-2 text-xs">
                           <Target className="w-3 h-3 mr-1" />
-                          Current
+                          N/A
                         </Badge>
                       </div>
                       
@@ -372,11 +354,11 @@ const Profile: React.FC = () => {
                         <div className="w-16 h-16 bg-gradient-to-br from-blue-500/20 to-cyan-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300">
                           <Target className="w-8 h-8 text-blue-400" />
                         </div>
-                        <div className="text-3xl font-bold text-white mb-2">{user.targetWeight}</div>
+                        <div className="text-3xl font-bold text-white mb-2">-</div>
                         <div className="text-white/60 text-sm font-medium">Target (kg)</div>
                         <Badge variant="secondary" className="mt-2 text-xs">
                           <Award className="w-3 h-3 mr-1" />
-                          Goal
+                          N/A
                         </Badge>
                       </div>
                     </div>
@@ -519,7 +501,7 @@ const Profile: React.FC = () => {
                       <div className="w-12 h-12 bg-gradient-to-br from-red-500/20 to-pink-500/20 rounded-2xl flex items-center justify-center mx-auto mb-3">
                         <Flame className="w-6 h-6 text-red-400" />
                       </div>
-                      <div className="text-2xl font-bold text-white mb-1">{user.streakCount}</div>
+                      <div className="text-2xl font-bold text-white mb-1">{user.streak_count || 0}</div>
                       <div className="text-white/60 text-sm">Current Streak</div>
                     </div>
                     <div className="text-center p-4 backdrop-blur-sm bg-white/5 rounded-2xl border border-white/5">
@@ -573,30 +555,7 @@ const Profile: React.FC = () => {
                       placeholder="Enter your name"
                     />
                   </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-medium text-white/80 mb-2">Current Weight (kg)</label>
-                      <input
-                        type="number"
-                        value={profileForm.currentWeight}
-                        onChange={(e) => setProfileForm({ ...profileForm, currentWeight: parseFloat(e.target.value) || 0 })}
-                        className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:border-white/40 focus:bg-white/15 transition-all duration-300"
-                        min="0"
-                        step="0.1"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-white/80 mb-2">Target Weight (kg)</label>
-                      <input
-                        type="number"
-                        value={profileForm.targetWeight}
-                        onChange={(e) => setProfileForm({ ...profileForm, targetWeight: parseFloat(e.target.value) || 0 })}
-                        className="w-full bg-white/10 backdrop-blur-sm border border-white/20 rounded-2xl px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:border-white/40 focus:bg-white/15 transition-all duration-300"
-                        min="0"
-                        step="0.1"
-                      />
-                    </div>
-                  </div>
+
                 </div>
                 <div className="flex justify-end space-x-3 mt-6">
                   <button

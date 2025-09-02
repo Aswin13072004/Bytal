@@ -114,8 +114,10 @@ const Dashboard: React.FC = () => {
         monthlyProgress,
       });
       
-    } catch (error) {
-      console.error('Error loading dashboard data:', error);
+    } catch (error: any) {
+      const message = error?.message || 'Unknown error';
+      const details = error?.details || error?.hint || '';
+      console.error('Error loading dashboard data:', { message, details, error });
     } finally {
       setLoading(false);
     }

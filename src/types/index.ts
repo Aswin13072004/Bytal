@@ -1,12 +1,10 @@
 export interface User {
   id: string;
-  email: string;
   name: string;
-  currentWeight: number;
-  targetWeight: number;
-  streakCount: number;
-  createdAt: string;
-  updatedAt: string;
+  email: string;
+  streak_count: number;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface WorkoutSession {

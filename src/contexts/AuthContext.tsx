@@ -1,13 +1,16 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User } from '@supabase/supabase-js';
 import { supabase, dbOperations } from '../utils/supabase';
+import { User as UserProfile } from '../types';
 
 interface AuthContextType {
   user: User | null;
+  userProfile: UserProfile | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<void>;
   signUp: (email: string, password: string, name: string) => Promise<void>;
   signOut: () => Promise<void>;
+  refreshUserProfile: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -26,13 +29,33 @@ interface AuthProviderProps {
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
+  const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(true);
+
+  const fetchUserProfile = async (userId: string) => {
+    try {
+      const profile = await dbOperations.getUser(userId);
+      setUserProfile(profile);
+    } catch (error) {
+      console.error('Error fetching user profile:', error);
+      setUserProfile(null);
+    }
+  };
+
+  const refreshUserProfile = async () => {
+    if (user) {
+      await fetchUserProfile(user.id);
+    }
+  };
 
   useEffect(() => {
     // Get initial session
     const getInitialSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       setUser(session?.user ?? null);
+      if (session?.user) {
+        await fetchUserProfile(session.user.id);
+      }
       setLoading(false);
     };
 
@@ -42,6 +65,11 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         setUser(session?.user ?? null);
+        if (session?.user) {
+          await fetchUserProfile(session.user.id);
+        } else {
+          setUserProfile(null);
+        }
         setLoading(false);
       }
     );
@@ -50,11 +78,29 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   }, []);
 
   const signIn = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
     if (error) throw error;
+    
+    // Ensure user profile exists, then update streak count on successful login
+    if (data.user) {
+      try {
+        const existing = await dbOperations.getUser(data.user.id);
+        if (!existing) {
+          await dbOperations.createUserProfile({
+            id: data.user.id,
+            email: data.user.email!,
+            name: data.user.user_metadata?.name || data.user.email?.split('@')[0] || 'User',
+          });
+        }
+        await dbOperations.updateStreakCount(data.user.id);
+      } catch (streakError) {
+        console.error('Error updating streak count:', streakError);
+        // Don't throw error here as the login was successful
+      }
+    }
   };
 
   const signUp = async (email: string, password: string, name: string) => {
@@ -70,16 +116,13 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     
     if (error) throw error;
     
-    // Create user profile in the database
-    if (data.user) {
+    // Create user profile only if a session exists (no email confirmation flow)
+    if (data.user && data.session) {
       try {
         await dbOperations.createUserProfile({
           id: data.user.id,
           email: data.user.email!,
           name: name,
-          currentWeight: 70, // Default weight
-          targetWeight: 70,  // Default target
-          streakCount: 0,
         });
       } catch (profileError) {
         console.error('Error creating user profile:', profileError);
@@ -95,10 +138,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const value = {
     user,
+    userProfile,
     loading,
     signIn,
     signUp,
     signOut,
+    refreshUserProfile,
   };
 
   return (

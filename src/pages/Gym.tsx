@@ -42,8 +42,22 @@ const Gym: React.FC = () => {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
+    // Restore local active workout if present (persists across logout)
+    const local = localStorage.getItem('activeWorkout');
+    if (local) {
+      try {
+        const parsed = JSON.parse(local);
+        if (parsed && parsed.startTime) {
+          setIsWorkoutActive(true);
+          setWorkoutStartTime(new Date(parsed.startTime));
+          setNotes(parsed.notes || '');
+          setCurrentWorkout(parsed);
+        }
+      } catch {}
+    }
+
     if (authUser) {
-      // Check if there's an active workout
+      // Check if there's an active workout in DB
       checkActiveWorkout();
       
       // Subscribe to real-time updates
@@ -72,6 +86,7 @@ const Gym: React.FC = () => {
     let interval: NodeJS.Timeout;
     if (isWorkoutActive && workoutStartTime) {
       interval = setInterval(() => {
+        // keep UI responsive; we still store minutes at stop
         const now = new Date();
         const duration = Math.floor((now.getTime() - workoutStartTime.getTime()) / 1000 / 60);
         setWorkoutDuration(duration);
@@ -102,8 +117,10 @@ const Gym: React.FC = () => {
         setNotes('');
         setExercises([]);
       }
-    } catch (error) {
-      console.error('Error checking active workout:', error);
+    } catch (error: any) {
+      const message = error?.message || 'Unknown error';
+      const details = error?.details || error?.hint || '';
+      console.error('Error checking active workout:', { message, details, error });
     }
   };
 
@@ -114,13 +131,26 @@ const Gym: React.FC = () => {
       if (currentWorkoutData && currentWorkoutData.exercises) {
         setExercises(currentWorkoutData.exercises);
       }
-    } catch (error) {
-      console.error('Error loading exercises:', error);
+    } catch (error: any) {
+      const message = error?.message || 'Unknown error';
+      const details = error?.details || error?.hint || '';
+      console.error('Error loading exercises:', { message, details, error });
     }
   };
 
   const startWorkout = async () => {
-    if (!authUser) return;
+    if (!authUser) {
+      const start = new Date();
+      const localSession: any = { id: 'local', startTime: start.toISOString(), notes: '' };
+      localStorage.setItem('activeWorkout', JSON.stringify(localSession));
+      setCurrentWorkout(localSession);
+      setIsWorkoutActive(true);
+      setWorkoutStartTime(start);
+      setWorkoutDuration(0);
+      setNotes('');
+      setExercises([]);
+      return;
+    }
     
     try {
       setLoading(true);
@@ -132,20 +162,36 @@ const Gym: React.FC = () => {
       });
       
       setCurrentWorkout(workoutData);
+      // Persist active workout so timer continues after logout
+      localStorage.setItem('activeWorkout', JSON.stringify({ id: workoutData.id, startTime: workoutData.startTime, notes: workoutData.notes }));
       setIsWorkoutActive(true);
       setWorkoutStartTime(new Date());
       setWorkoutDuration(0);
       setNotes('');
       setExercises([]);
-    } catch (error) {
-      console.error('Error starting workout:', error);
+    } catch (error: any) {
+      const message = error?.message || 'Unknown error';
+      const details = error?.details || error?.hint || '';
+      console.error('Error starting workout:', { message, details, error });
     } finally {
       setLoading(false);
     }
   };
 
   const stopWorkout = async () => {
-    if (!currentWorkout || !authUser) return;
+    if (!currentWorkout) return;
+    // Clear local active workout
+    localStorage.removeItem('activeWorkout');
+
+    if (!authUser || currentWorkout.id === 'local') {
+      setIsWorkoutActive(false);
+      setCurrentWorkout(null);
+      setWorkoutStartTime(null);
+      setWorkoutDuration(0);
+      setNotes('');
+      setExercises([]);
+      return;
+    }
     
     try {
       setLoading(true);
@@ -161,8 +207,10 @@ const Gym: React.FC = () => {
       setWorkoutDuration(0);
       setNotes('');
       setExercises([]);
-    } catch (error) {
-      console.error('Error stopping workout:', error);
+    } catch (error: any) {
+      const message = error?.message || 'Unknown error';
+      const details = error?.details || error?.hint || '';
+      console.error('Error stopping workout:', { message, details, error });
     } finally {
       setLoading(false);
     }
@@ -193,8 +241,10 @@ const Gym: React.FC = () => {
       
       // Reload exercises
       loadExercises(currentWorkout.id);
-    } catch (error) {
-      console.error('Error adding exercise:', error);
+    } catch (error: any) {
+      const message = error?.message || 'Unknown error';
+      const details = error?.details || error?.hint || '';
+      console.error('Error adding exercise:', { message, details, error });
     } finally {
       setLoading(false);
     }
@@ -239,8 +289,10 @@ const Gym: React.FC = () => {
       if (currentWorkout) {
         loadExercises(currentWorkout.id);
       }
-    } catch (error) {
-      console.error('Error updating exercise:', error);
+    } catch (error: any) {
+      const message = error?.message || 'Unknown error';
+      const details = error?.details || error?.hint || '';
+      console.error('Error updating exercise:', { message, details, error });
     } finally {
       setLoading(false);
     }
@@ -257,8 +309,10 @@ const Gym: React.FC = () => {
       if (currentWorkout) {
         loadExercises(currentWorkout.id);
       }
-    } catch (error) {
-      console.error('Error deleting exercise:', error);
+    } catch (error: any) {
+      const message = error?.message || 'Unknown error';
+      const details = error?.details || error?.hint || '';
+      console.error('Error deleting exercise:', { message, details, error });
     } finally {
       setLoading(false);
     }
@@ -271,15 +325,25 @@ const Gym: React.FC = () => {
       await dbOperations.updateWorkoutSession(currentWorkout.id, {
         notes: notes,
       });
-    } catch (error) {
-      console.error('Error updating workout notes:', error);
+    } catch (error: any) {
+      const message = error?.message || 'Unknown error';
+      const details = error?.details || error?.hint || '';
+      console.error('Error updating workout notes:', { message, details, error });
     }
   };
 
-  const formatTime = (minutes: number) => {
-    const hrs = Math.floor(minutes / 60);
-    const mins = minutes % 60;
-    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}`;
+  const formatElapsed = () => {
+    if (isWorkoutActive && workoutStartTime) {
+      const totalSeconds = Math.max(0, Math.floor((Date.now() - workoutStartTime.getTime()) / 1000));
+      const hrs = Math.floor(totalSeconds / 3600);
+      const mins = Math.floor((totalSeconds % 3600) / 60);
+      const secs = totalSeconds % 60;
+      return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    }
+    // Fallback to stored minutes when not active
+    const hrs = Math.floor(workoutDuration / 60);
+    const mins = workoutDuration % 60;
+    return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:00`;
   };
 
   const containerVariants: Variants = {
@@ -322,39 +386,7 @@ const Gym: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-amoled-950 relative overflow-hidden pb-24">
-      {/* AMOLED Dark Background with Elegant Particles */}
-      <div className="absolute inset-0">
-        <div className="absolute inset-0 bg-gradient-to-br from-amoled-950 via-amoled-900 to-amoled-800"></div>
-        
-        {/* Elegant floating orbs */}
-        <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-accent-emerald/5 rounded-full blur-3xl animate-float"></div>
-        <div className="absolute top-3/4 right-1/4 w-80 h-80 bg-accent-blue/8 rounded-full blur-3xl animate-float" style={{animationDelay: '1s'}}></div>
-        <div className="absolute top-1/2 left-1/2 w-72 h-72 bg-accent-purple/6 rounded-full blur-3xl animate-float" style={{animationDelay: '2s'}}></div>
-        
-        {/* Subtle animated particles */}
-        <div className="absolute inset-0">
-          {[...Array(10)].map((_, i) => (
-            <div
-              key={i}
-              className="absolute w-1 h-1 bg-white/15 rounded-full animate-pulse"
-              style={{
-                left: `${Math.random() * 100}%`,
-                top: `${Math.random() * 100}%`,
-                animationDelay: `${Math.random() * 3}s`,
-                animationDuration: `${3 + Math.random() * 2}s`
-              }}
-            />
-          ))}
-        </div>
-        
-        {/* Grid pattern overlay */}
-        <div className="absolute inset-0 opacity-[0.01]" style={{
-          backgroundImage: `radial-gradient(circle at 1px 1px, white 1px, transparent 0)`,
-          backgroundSize: '30px 30px'
-        }}></div>
-      </div>
-
+    <div className="min-h-screen bg-black relative pb-24">
       <motion.div
         initial="hidden"
         animate="visible"
@@ -373,16 +405,16 @@ const Gym: React.FC = () => {
 
           {/* Workout Control */}
           <motion.div variants={itemVariants}>
-            <Card className="mb-8 text-center relative overflow-hidden group hover:scale-[1.02] transition-all duration-500">
-              <div className="absolute inset-0 bg-gradient-to-br from-white/5 via-transparent to-transparent pointer-events-none rounded-3xl"></div>
+            <Card className="mb-8 text-center relative overflow-hidden bg-white/5 backdrop-blur-md border border-white/10">
+              <div className="absolute inset-0 pointer-events-none rounded-3xl"></div>
               
               <CardContent className="p-8 relative z-10">
                 <div className="flex flex-col items-center space-y-6">
                   <div className="relative">
-                    <div className={`w-24 h-24 rounded-3xl flex items-center justify-center border-2 ${
+                    <div className={`w-24 h-24 rounded-3xl flex items-center justify-center border border-white/10 ${
                       isWorkoutActive 
-                        ? 'bg-red-500/20 border-red-500/30 text-red-400' 
-                        : 'bg-accent-emerald/20 border-accent-emerald/30 text-accent-emerald'
+                        ? 'bg-white/10 text-white/80' 
+                        : 'bg-white/5 text-white/60'
                     }`}>
                       {isWorkoutActive ? (
                         <Square className="w-10 h-10" />
@@ -390,11 +422,7 @@ const Gym: React.FC = () => {
                         <Play className="w-10 h-10 ml-1" />
                       )}
                     </div>
-                    {isWorkoutActive && (
-                      <div className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 rounded-full flex items-center justify-center">
-                        <div className="w-2 h-2 bg-white rounded-full animate-pulse"></div>
-                      </div>
-                    )}
+                    {/* removed twinkling indicator for clean UI */}
                   </div>
                   
                   <div className="text-center">
@@ -402,11 +430,11 @@ const Gym: React.FC = () => {
                       {isWorkoutActive ? 'Workout Active' : 'Ready to Start'}
                     </h2>
                     {isWorkoutActive && (
-                      <div className="text-5xl font-bold text-red-400 mb-2 font-mono">
-                        {formatTime(workoutDuration)}
+                      <div className="text-5xl font-bold text-white/80 mb-2 font-mono">
+                        {formatElapsed()}
                       </div>
                     )}
-                    <p className="text-white/60">
+                    <p className="text-white/50">
                       {isWorkoutActive ? 'Keep pushing! You\'re doing great!' : 'Start your fitness journey'}
                     </p>
                   </div>
@@ -416,9 +444,9 @@ const Gym: React.FC = () => {
                       <Button
                         onClick={startWorkout}
                         disabled={loading}
-                        variant="gradient"
+                        variant="outline"
                         size="lg"
-                        className="px-8 py-4 text-lg font-semibold"
+                        className="px-8 py-4 text-lg font-semibold bg-white/5 border-white/10 text-white/80 hover:bg-white/10"
                       >
                         {loading ? (
                           <>
@@ -436,9 +464,9 @@ const Gym: React.FC = () => {
                       <Button
                         onClick={stopWorkout}
                         disabled={loading}
-                        variant="destructive"
+                        variant="outline"
                         size="lg"
-                        className="px-8 py-4 text-lg font-semibold"
+                        className="px-8 py-4 text-lg font-semibold bg-white/5 border-white/10 text-white/80 hover:bg-white/10"
                       >
                         {loading ? (
                           <>
@@ -462,13 +490,13 @@ const Gym: React.FC = () => {
           {/* Workout Notes */}
           {isWorkoutActive && (
             <motion.div variants={itemVariants}>
-              <Card className="mb-8 relative overflow-hidden group hover:scale-[1.01] transition-all duration-500">
-                <div className="absolute inset-0 bg-gradient-to-br from-white/5 via-transparent to-transparent pointer-events-none rounded-3xl"></div>
+              <Card className="mb-8 relative overflow-hidden bg-white/5 backdrop-blur-md border border-white/10">
+                <div className="absolute inset-0 pointer-events-none rounded-3xl"></div>
                 
                 <CardHeader>
                   <div className="flex items-center space-x-3">
-                    <div className="p-3 rounded-2xl bg-gradient-to-br from-accent-blue/20 to-accent-purple/20">
-                      <Edit3 className="w-6 h-6 text-accent-blue" />
+                    <div className="p-3 rounded-2xl bg-white/10">
+                      <Edit3 className="w-6 h-6 text-white/70" />
                     </div>
                     <div>
                       <CardTitle className="text-xl">Workout Notes</CardTitle>
@@ -482,7 +510,7 @@ const Gym: React.FC = () => {
                     value={notes}
                     onChange={(e) => setNotes(e.target.value)}
                     onBlur={updateWorkoutNotes}
-                    className="w-full bg-white/5 backdrop-blur-sm border border-white/20 rounded-xl px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:border-white/40 focus:bg-white/10 transition-all duration-300 resize-none"
+                    className="w-full bg-white/5 backdrop-blur-md border border-white/10 rounded-xl px-4 py-3 text-white placeholder-white/50 focus:outline-none focus:border-white/30 focus:bg-white/10 transition-all duration-300 resize-none"
                     rows={3}
                     placeholder="Add your workout notes here..."
                   />
@@ -493,14 +521,14 @@ const Gym: React.FC = () => {
 
           {/* Exercises */}
           <motion.div variants={itemVariants}>
-            <Card className="relative overflow-hidden group hover:scale-[1.01] transition-all duration-500">
-              <div className="absolute inset-0 bg-gradient-to-br from-white/5 via-transparent to-transparent pointer-events-none rounded-3xl"></div>
+            <Card className="relative overflow-hidden bg-white/5 backdrop-blur-md border border-white/10">
+              <div className="absolute inset-0 pointer-events-none rounded-3xl"></div>
               
               <CardHeader>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center space-x-3">
-                    <div className="p-3 rounded-2xl bg-gradient-to-br from-accent-emerald/20 to-accent-blue/20">
-                      <Target className="w-6 h-6 text-accent-emerald" />
+                    <div className="p-3 rounded-2xl bg-white/10">
+                      <Target className="w-6 h-6 text-white/70" />
                     </div>
                     <div>
                       <CardTitle className="text-xl">Exercises</CardTitle>
@@ -531,8 +559,8 @@ const Gym: React.FC = () => {
                       exit={{ opacity: 0 }}
                       className="text-center py-12"
                     >
-                      <div className="w-20 h-20 bg-gradient-to-br from-accent-emerald/20 to-accent-blue/20 rounded-full flex items-center justify-center mx-auto mb-6">
-                        <Activity className="w-10 h-10 text-accent-emerald" />
+                      <div className="w-20 h-20 bg-white/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <Activity className="w-10 h-10 text-white/70" />
                       </div>
                       <h3 className="text-white/80 text-xl font-semibold mb-2">No exercises added yet</h3>
                       {isWorkoutActive && (
@@ -541,7 +569,7 @@ const Gym: React.FC = () => {
                       {isWorkoutActive && (
                         <Button
                           onClick={() => setIsAddExerciseOpen(true)}
-                          variant="gradient"
+                          variant="outline"
                           className="px-6"
                         >
                           <Plus className="w-4 h-4 mr-2" />
@@ -559,20 +587,20 @@ const Gym: React.FC = () => {
                           exit={{ opacity: 0, x: 20 }}
                           transition={{ duration: 0.3 }}
                         >
-                          <div className="flex items-center p-4 bg-white/5 backdrop-blur-sm rounded-xl border border-white/10 hover:bg-white/10 transition-all duration-300 group">
+                          <div className="flex items-center p-4 bg-white/5 backdrop-blur-md rounded-xl border border-white/10 hover:bg-white/10 transition-all duration-300 group">
                             <div className="flex-1">
                               <div className="text-lg font-semibold text-white mb-2 group-hover:text-white/90 transition-colors">
                                 {exercise.name}
                               </div>
                               <div className="flex flex-wrap gap-2 mb-2">
-                                <Badge variant="secondary" className="text-xs">
+                                <Badge variant="secondary" className="text-xs bg-white/10 border-white/10">
                                   {exercise.sets} sets
                                 </Badge>
-                                <Badge variant="secondary" className="text-xs">
+                                <Badge variant="secondary" className="text-xs bg-white/10 border-white/10">
                                   {exercise.reps} reps
                                 </Badge>
                                 {(exercise.weight ?? 0) > 0 && (
-                                  <Badge variant="info" className="text-xs">
+                                  <Badge variant="info" className="text-xs bg-white/10 border-white/10">
                                     {exercise.weight ?? 0} kg
                                   </Badge>
                                 )}
@@ -587,7 +615,7 @@ const Gym: React.FC = () => {
                                   onClick={() => editExercise(exercise)}
                                   variant="ghost"
                                   size="icon"
-                                  className="h-8 w-8 text-accent-blue hover:text-accent-blue hover:bg-accent-blue/10"
+                                  className="h-8 w-8 text-white/70 hover:text-white hover:bg-white/10"
                                 >
                                   <Edit3 className="w-4 h-4" />
                                 </Button>
@@ -595,7 +623,7 @@ const Gym: React.FC = () => {
                                   onClick={() => deleteExercise(exercise.id)}
                                   variant="ghost"
                                   size="icon"
-                                  className="h-8 w-8 text-red-400 hover:text-red-300 hover:bg-red-500/10"
+                                  className="h-8 w-8 text-white/70 hover:text-white hover:bg-white/10"
                                 >
                                   <Trash2 className="w-4 h-4" />
                                 </Button>
