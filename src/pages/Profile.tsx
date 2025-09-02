@@ -80,8 +80,27 @@ const Profile: React.FC = () => {
     }
   }, [authUser, loadProfileData]);
 
+  // Refresh data when returning to tab to prevent stuck loading after alt-tab
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && authUser) {
+        loadProfileData();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [authUser, loadProfileData]);
+
+  // Safety timeout to ensure the loading spinner does not hang indefinitely
+  useEffect(() => {
+    if (!loading) return;
+    const t = setTimeout(() => setLoading(false), 8000);
+    return () => clearTimeout(t);
+  }, [loading]);
+
   // removed duplicate loadProfileData definition
 
+  const latestWeight = weightHistory.length > 0 ? weightHistory[0].weight : null;
   const weightChange = weightHistory.length > 1 
     ? weightHistory[0].weight - weightHistory[weightHistory.length - 1].weight 
     : 0;
@@ -342,8 +361,8 @@ const Profile: React.FC = () => {
                         <div className="w-16 h-16 bg-gradient-to-br from-emerald-500/20 to-teal-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 group-hover:scale-110 transition-transform duration-300">
                           <Weight className="w-8 h-8 text-emerald-400" />
                         </div>
-                        <div className="text-3xl font-bold text-white mb-2">-</div>
-                        <div className="text-white/60 text-sm font-medium">Current (kg)</div>
+                        <div className="text-3xl font-bold text-white mb-2">{latestWeight !== null ? latestWeight : '-'}</div>
+                        <div className="text-white/60 text-sm font-medium">Recent (kg)</div>
                         <Badge variant="info" className="mt-2 text-xs">
                           <Target className="w-3 h-3 mr-1" />
                           N/A

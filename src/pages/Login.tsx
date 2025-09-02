@@ -30,7 +30,7 @@ const Login = () => {
         setError('Please check your email to confirm your account!');
       } else {
         await signIn(email, password);
-        navigate('/dashboard');
+        navigate('/');
       }
     } catch (error: any) {
       setError(error.message || "Authentication failed");

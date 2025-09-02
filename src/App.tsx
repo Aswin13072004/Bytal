@@ -2,9 +2,11 @@ import React from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import BottomNavigationComponent from './components/BottomNavigation';
+import TopProfileMenu from './components/TopProfileMenu';
 import Dashboard from './pages/Dashboard';
 import Gym from './pages/Gym';
 import Profile from './pages/Profile';
+import Timer from './pages/Timer';
 import Login from './pages/Login';
 import './index.css';
 
@@ -33,6 +35,7 @@ const AppContent: React.FC = () => {
   
   return (
     <div className="App">
+      {user && <TopProfileMenu />}
       <Routes>
         <Route path="/" element={
           <ProtectedRoute>
@@ -47,6 +50,11 @@ const AppContent: React.FC = () => {
         <Route path="/profile" element={
           <ProtectedRoute>
             <Profile />
+          </ProtectedRoute>
+        } />
+        <Route path="/timer" element={
+          <ProtectedRoute>
+            <Timer />
           </ProtectedRoute>
         } />
         <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />

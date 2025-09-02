@@ -1,8 +1,9 @@
 import { createClient } from '@supabase/supabase-js';
 
 const supabaseUrl = 'https://llnjfrvnwuekdjudpnzv.supabase.co';
-// CRA uses process.env.REACT_APP_*, guard against missing env during dev
-const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY || '';
+// CRA uses process.env.REACT_APP_* at build time. Add runtime fallback via window.__ENV for refresh scenarios.
+const runtimeEnv = typeof window !== 'undefined' ? (window as any).__ENV : undefined;
+const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY || runtimeEnv?.SUPABASE_ANON_KEY || '';
 
 if (!supabaseAnonKey) {
   // Help developers diagnose 401 quickly when the key is missing
@@ -10,7 +11,14 @@ if (!supabaseAnonKey) {
   console.error('Supabase anon key is missing. Set REACT_APP_SUPABASE_ANON_KEY in your environment.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+  },
+});
 
 // Database table names
 export const TABLES = {
@@ -18,6 +26,7 @@ export const TABLES = {
   WORKOUT_SESSIONS: 'workout_sessions',
   EXERCISES: 'exercises',
   WEIGHT_PROGRESS: 'weight_progress',
+  TIMER: 'timer',
 } as const;
 
 // Real-time subscriptions
@@ -319,5 +328,32 @@ export const dbOperations = {
       .eq('id', entryId);
     
     if (error) throw error;
-  }
+  },
+
+  // Timer operations
+  async createTimerEntry(entry: { user_id: string; note: string; time: number; current_timestamp?: string }) {
+    const payload = {
+      user_id: entry.user_id,
+      note: entry.note,
+      time: entry.time,
+      current_timestamp: entry.current_timestamp ?? new Date().toISOString(),
+    };
+    const { data, error } = await supabase
+      .from(TABLES.TIMER)
+      .insert(payload)
+      .select('*')
+      .single();
+    if (error) throw error;
+    return data;
+  },
+
+  async getTimerEntries(userId: string) {
+    const { data, error } = await supabase
+      .from(TABLES.TIMER)
+      .select('*')
+      .eq('user_id', userId)
+      .order('current_timestamp', { ascending: false });
+    if (error) throw error;
+    return data || [];
+  },
 };

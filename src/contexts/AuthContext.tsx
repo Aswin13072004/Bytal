@@ -51,12 +51,24 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     // Get initial session
     const getInitialSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      setUser(session?.user ?? null);
-      if (session?.user) {
-        await fetchUserProfile(session.user.id);
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          await fetchUserProfile(session.user.id);
+        } else {
+          // No session present – force a clean logout state
+          try { await supabase.auth.signOut(); } catch {}
+          setUserProfile(null);
+        }
+      } catch (err) {
+        // Ensure we never hang on loading if getSession fails (e.g., missing anon key / network)
+        console.error('Failed to get initial session:', err);
+        setUser(null);
+        setUserProfile(null);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
     getInitialSession();
@@ -64,17 +76,49 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        setUser(session?.user ?? null);
-        if (session?.user) {
-          await fetchUserProfile(session.user.id);
-        } else {
-          setUserProfile(null);
+        if ((event as any) === 'TOKEN_REFRESHED' || event === 'SIGNED_IN' || event === 'USER_UPDATED') {
+          setUser(session?.user ?? null);
+          if (session?.user) {
+            await fetchUserProfile(session.user.id);
+          }
+          setLoading(false);
+          return;
         }
+        if ((event as any) === 'TOKEN_REFRESH_FAILED' || event === 'SIGNED_OUT') {
+          // Clear local session if refresh fails to avoid stuck loading
+          try {
+            await supabase.auth.signOut();
+          } catch {}
+          setUser(null);
+          setUserProfile(null);
+          setLoading(false);
+          return;
+        }
+        // Default path
+        setUser(session?.user ?? null);
         setLoading(false);
       }
     );
 
     return () => subscription.unsubscribe();
+  }, []);
+
+  // When returning to tab, ensure session is current to prevent 400 refresh loops
+  useEffect(() => {
+    const onVisible = async () => {
+      if (document.visibilityState === 'visible') {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (!session) {
+            try { await supabase.auth.signOut(); } catch {}
+            setUser(null);
+            setUserProfile(null);
+          }
+        } catch {}
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
   }, []);
 
   const signIn = async (email: string, password: string) => {

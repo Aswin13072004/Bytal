@@ -1,12 +1,10 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { useAuth } from '../contexts/AuthContext';
 import { 
   BarChart3, 
   Dumbbell, 
-  User, 
-  LogOut,
+  Clock,
   Home,
   Activity,
   Sparkles,
@@ -18,7 +16,6 @@ import { Badge } from './ui/badge';
 const BottomNavigationComponent: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const { signOut } = useAuth();
 
   const handleChange = (event: React.SyntheticEvent, newValue: string) => {
     navigate(newValue);
@@ -40,14 +37,6 @@ const BottomNavigationComponent: React.FC = () => {
 
   const currentValue = getCurrentValue();
 
-  const handleLogout = async () => {
-    try {
-      await signOut();
-      navigate('/login');
-    } catch (error) {
-      console.error('Error signing out:', error);
-    }
-  };
 
   const navItems = [
     {
@@ -69,10 +58,10 @@ const BottomNavigationComponent: React.FC = () => {
       borderColor: 'border-accent-emerald/30'
     },
     {
-      id: 'profile',
-      path: '/profile',
-      icon: User,
-      label: 'Profile',
+      id: 'timer',
+      path: '/timer',
+      icon: Clock,
+      label: 'Timer',
       color: 'text-accent-purple',
       bgColor: 'bg-accent-purple/20',
       borderColor: 'border-accent-purple/30'
@@ -128,23 +117,7 @@ const BottomNavigationComponent: React.FC = () => {
                 );
               })}
               
-              {/* Logout Button */}
-              <motion.div
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                className="flex-1"
-              >
-                <Button
-                  onClick={handleLogout}
-                  variant="ghost"
-                  className="w-full flex flex-col items-center py-3 px-2 rounded-2xl transition-all duration-300 text-red-400 hover:text-red-300 hover:bg-red-500/20"
-                >
-                  <div className="relative mb-2">
-                    <LogOut className="w-6 h-6" />
-                  </div>
-                  <span className="text-xs font-medium">Logout</span>
-                </Button>
-              </motion.div>
+
             </div>
           </div>
         </div>

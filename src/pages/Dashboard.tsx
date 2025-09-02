@@ -9,7 +9,6 @@ import {
   Clock, 
   Target, 
   Flame, 
-  Calendar,
   RefreshCw,
   BarChart3,
   Zap,
@@ -39,12 +38,56 @@ const Dashboard: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [recentWorkouts, setRecentWorkouts] = useState<WorkoutSession[]>([]);
   const [weightHistory, setWeightHistory] = useState<WeightProgress[]>([]);
-  const [greeting, setGreeting] = useState('');
+  // const [greeting, setGreeting] = useState('');
+
+  const getGreeting = () => {
+    const hour = new Date().getHours();
+    if (hour < 12) return 'Good morning';
+    if (hour < 17) return 'Good afternoon';
+    return 'Good evening';
+  };
+
+  const loadDashboardData = React.useCallback(async () => {
+    if (!user) return;
+    try {
+      setLoading(true);
+      const workouts = await dbOperations.getWorkoutSessions(user.id);
+      setRecentWorkouts(workouts.slice(0, 5));
+      const weightData = await dbOperations.getWeightProgress(user.id);
+      setWeightHistory(weightData);
+      const totalWorkouts = workouts.length;
+      const currentStreak = calculateCurrentStreak(workouts);
+      const longestStreak = calculateLongestStreak(workouts);
+      const averageDuration = totalWorkouts > 0 
+        ? Math.round(workouts.reduce((sum, w) => sum + (w.duration || 0), 0) / totalWorkouts)
+        : 0;
+      const totalTime = workouts.reduce((sum, w) => sum + (w.duration || 0), 0);
+      const weightChange = weightData.length > 1 
+        ? weightData[0].weight - weightData[weightData.length - 1].weight
+        : 0;
+      const monthlyProgress = calculateMonthlyProgress(workouts, weightData);
+      setStats({
+        totalWorkouts,
+        currentStreak,
+        longestStreak,
+        averageWorkoutDuration: averageDuration,
+        totalWorkoutTime: totalTime,
+        weightChange,
+        monthlyProgress,
+      });
+    } catch (error: any) {
+      const message = error?.message || 'Unknown error';
+      const details = error?.details || error?.hint || '';
+      console.error('Error loading dashboard data:', { message, details, error });
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
 
   useEffect(() => {
     if (user) {
       loadDashboardData();
-      setGreeting(getGreeting());
+      // setGreeting(getGreeting());
       
       // Subscribe to real-time updates
       const workoutSubscription = subscribeToRealtime('workout_sessions', (payload) => {
@@ -64,64 +107,25 @@ const Dashboard: React.FC = () => {
         weightSubscription.unsubscribe();
       };
     }
-  }, [user]);
+  }, [user, loadDashboardData]);
 
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return 'Good morning';
-    if (hour < 17) return 'Good afternoon';
-    return 'Good evening';
-  };
+  // Refresh data when returning to the tab to avoid stuck loading after alt-tab
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible' && user) {
+        loadDashboardData();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [user, loadDashboardData]);
 
-  const loadDashboardData = async () => {
-    if (!user) return;
-    
-    try {
-      setLoading(true);
-      
-      // Load workout sessions
-      const workouts = await dbOperations.getWorkoutSessions(user.id);
-      setRecentWorkouts(workouts.slice(0, 5)); // Get last 5 workouts
-      
-      // Load weight progress
-      const weightData = await dbOperations.getWeightProgress(user.id);
-      setWeightHistory(weightData);
-      
-      // Calculate stats
-      const totalWorkouts = workouts.length;
-      const currentStreak = calculateCurrentStreak(workouts);
-      const longestStreak = calculateLongestStreak(workouts);
-      const averageDuration = totalWorkouts > 0 
-        ? Math.round(workouts.reduce((sum, w) => sum + (w.duration || 0), 0) / totalWorkouts)
-        : 0;
-      const totalTime = workouts.reduce((sum, w) => sum + (w.duration || 0), 0);
-      
-      // Calculate weight change
-      const weightChange = weightData.length > 1 
-        ? weightData[0].weight - weightData[weightData.length - 1].weight
-        : 0;
-      
-      // Calculate monthly progress
-      const monthlyProgress = calculateMonthlyProgress(workouts, weightData);
-      
-      setStats({
-        totalWorkouts,
-        currentStreak,
-        longestStreak,
-        averageWorkoutDuration: averageDuration,
-        totalWorkoutTime: totalTime,
-        weightChange,
-        monthlyProgress,
-      });
-      
-    } catch (error: any) {
-      const message = error?.message || 'Unknown error';
-      const details = error?.details || error?.hint || '';
-      console.error('Error loading dashboard data:', { message, details, error });
-    } finally {
-      setLoading(false);
-    }
-  };
+  // Safety: ensure loading cannot hang indefinitely
+  useEffect(() => {
+    if (!loading) return;
+    const t = setTimeout(() => setLoading(false), 8000);
+    return () => clearTimeout(t);
+  }, [loading]);
 
   const calculateCurrentStreak = (workouts: WorkoutSession[]): number => {
     if (workouts.length === 0) return 0;
@@ -336,7 +340,7 @@ const Dashboard: React.FC = () => {
                 <div className="space-y-2">
                   <div className="flex items-center space-x-2">
                     <Sparkles className="w-5 h-5 text-accent-blue" />
-                    <h1 className="text-2xl font-bold text-white/90">{greeting}</h1>
+                    <h1 className="text-2xl font-bold text-white/90">{getGreeting()}</h1>
                   </div>
                   <h2 className="text-4xl font-bold text-white">Welcome back!</h2>
                   <p className="text-white/60 text-lg">Track your fitness journey with real-time updates</p>
